@@ -6,18 +6,24 @@ import Dashboard from './Dashboard';
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [oauthError, setOauthError] = useState(null);
 
   console.log('🔍 [APP] Component mounted');
 
   useEffect(() => {
     console.log('🔍 [APP] Checking for saved user...');
-    
+
     // Check URL params for token (Google OAuth redirect)
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token');
     const userParam = urlParams.get('user');
-    
-    if (token && userParam) {
+    const error = urlParams.get('error');
+
+    if (error) {
+      console.log('❌ [APP] OAuth error:', error);
+      setOauthError(decodeURIComponent(error));
+      window.history.replaceState({}, '', '/authstack');
+    } else if (token && userParam) {
       console.log('✅ [APP] Found OAuth token in URL');
       try {
         const userData = JSON.parse(decodeURIComponent(userParam));
@@ -25,7 +31,6 @@ function App() {
         localStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
         console.log('✅ [APP] OAuth user logged in:', userData.email);
-        // Clean URL
         window.history.replaceState({}, '', '/authstack');
       } catch (error) {
         console.error('❌ [APP] Error parsing OAuth data:', error);
@@ -34,7 +39,7 @@ function App() {
       // Check localStorage for existing session
       const savedToken = localStorage.getItem('token');
       const savedUser = localStorage.getItem('user');
-      
+
       if (savedToken && savedUser) {
         console.log('✅ [APP] Found saved session');
         try {
@@ -48,7 +53,7 @@ function App() {
         console.log('ℹ️ [APP] No saved session found');
       }
     }
-    
+
     setLoading(false);
   }, []);
 
@@ -82,13 +87,13 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route 
-          path="/authstack" 
-          element={user ? <Navigate to="/authstack/dashboard" /> : <Login onLogin={handleLogin} />} 
+        <Route
+          path="/authstack"
+          element={user ? <Navigate to="/authstack/dashboard" /> : <Login onLogin={handleLogin} oauthError={oauthError} />}
         />
-        <Route 
-          path="/authstack/dashboard" 
-          element={user ? <Dashboard user={user} onLogout={handleLogout} /> : <Navigate to="/authstack" />} 
+        <Route
+          path="/authstack/dashboard"
+          element={user ? <Dashboard user={user} onLogout={handleLogout} /> : <Navigate to="/authstack" />}
         />
         <Route path="/" element={<Navigate to="/authstack" />} />
       </Routes>

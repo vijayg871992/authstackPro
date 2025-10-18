@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_BASE = 'https://vijayg.dev/authstack/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8001/api';
 
-function Login({ onLogin }) {
+function Login({ onLogin, oauthError }) {
   const [authMethod, setAuthMethod] = useState('password'); // 'password', 'otp', 'register'
   const [formData, setFormData] = useState({
     firstName: '',
@@ -18,6 +18,12 @@ function Login({ onLogin }) {
   const [showPassword, setShowPassword] = useState(false);
 
   console.log('🔍 [LOGIN] Component rendered, method:', authMethod);
+
+  useEffect(() => {
+    if (oauthError) {
+      setMessage('❌ ' + oauthError);
+    }
+  }, [oauthError]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -190,6 +196,7 @@ function Login({ onLogin }) {
                 required
                 style={{
                   flex: 1,
+                  minWidth: 0,
                   padding: '12px 16px',
                   border: '2px solid #e2e8f0',
                   borderRadius: '8px',
@@ -209,6 +216,7 @@ function Login({ onLogin }) {
                 required
                 style={{
                   flex: 1,
+                  minWidth: 0,
                   padding: '12px 16px',
                   border: '2px solid #e2e8f0',
                   borderRadius: '8px',

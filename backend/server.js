@@ -29,13 +29,16 @@ app.use(passport.session());
 
 console.log('✅ [SERVER] Middleware configured');
 
-// Database Connection
-const db = mysql.createConnection({
+// Database Connection Pool
+const db = mysql.createPool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME
+  database: process.env.DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
 });
 
 // Email Transporter
@@ -58,24 +61,17 @@ passport.use(new GoogleStrategy({
   callbackURL: process.env.GOOGLE_CALLBACK_URL
 }, async (accessToken, refreshToken, profile, done) => {
   console.log('🔍 [GOOGLE] OAuth callback received:', profile.emails[0].value);
-  
+
   try {
     const email = profile.emails[0].value;
     const [rows] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
-    
+
     if (rows.length > 0) {
       console.log('✅ [GOOGLE] Existing user found:', email);
       return done(null, rows[0]);
     } else {
-      console.log('🆕 [GOOGLE] Creating new user:', email);
-      const [result] = await db.execute(
-        'INSERT INTO users (id, firstName, lastName, email, isActive, emailVerified) VALUES (UUID(), ?, ?, ?, 1, 1)',
-        [profile.name.givenName, profile.name.familyName, email]
-      );
-      
-      const [newUser] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
-      console.log('✅ [GOOGLE] New user created:', email);
-      return done(null, newUser[0]);
+      console.log('❌ [GOOGLE] User not registered:', email);
+      return done(null, false, { message: 'User not registered. Please sign up first.' });
     }
   } catch (error) {
     console.error('❌ [GOOGLE] OAuth error:', error);
@@ -142,21 +138,21 @@ app.post('/api/auth/login', async (req, res) => {
     
     if (rows.length === 0) {
       console.log('❌ [LOGIN] User not found:', email);
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: 'User not registered. Please sign up first.' });
     }
-    
+
     const user = rows[0];
-    
+
     if (!user.password) {
       console.log('❌ [LOGIN] No password set for user:', email);
       return res.status(401).json({ success: false, message: 'Please use Google login or set a password' });
     }
-    
+
     const isValid = await bcrypt.compare(password, user.password);
-    
+
     if (!isValid) {
       console.log('❌ [LOGIN] Invalid password for:', email);
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: 'Incorrect password' });
     }
     
     const token = generateJWT(user.id);
@@ -285,15 +281,27 @@ app.get('/api/auth/google', (req, res, next) => {
   passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
 });
 
-app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/authstack/#/login?error=oauth_failed' }), (req, res) => {
-  console.log('✅ [GOOGLE] OAuth success for:', req.user.email);
-  const token = generateJWT(req.user.id);
-  res.redirect(`/authstack/#/dashboard?token=${token}&user=${encodeURIComponent(JSON.stringify({
-    id: req.user.id,
-    firstName: req.user.firstName,
-    lastName: req.user.lastName,
-    email: req.user.email
-  }))}`);
+app.get('/auth/google/callback', (req, res, next) => {
+  passport.authenticate('google', (err, user, info) => {
+    if (err) {
+      console.error('❌ [GOOGLE] OAuth error:', err);
+      return res.redirect('http://localhost:3000/authstack?error=oauth_failed');
+    }
+
+    if (!user) {
+      const message = info?.message || 'User not registered. Please sign up first.';
+      return res.redirect(`http://localhost:3000/authstack?error=${encodeURIComponent(message)}`);
+    }
+
+    console.log('✅ [GOOGLE] OAuth success for:', user.email);
+    const token = generateJWT(user.id);
+    res.redirect(`http://localhost:3000/authstack/dashboard?token=${token}&user=${encodeURIComponent(JSON.stringify({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email
+    }))}`);
+  })(req, res, next);
 });
 
 // 5. USER REGISTRATION (Email + Password)
@@ -355,7 +363,7 @@ app.get('/api/health', (req, res) => {
 const PORT = process.env.PORT || 8001;
 app.listen(PORT, async () => {
   console.log(`🌟 [SERVER] Clean Auth running on port ${PORT}`);
-  
+
   try {
     await db.execute('SELECT 1');
     console.log('✅ [DATABASE] Connection successful');
