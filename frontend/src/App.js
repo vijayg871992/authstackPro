@@ -6,79 +6,63 @@ import Dashboard from './Dashboard';
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [oauthError, setOauthError] = useState(null);
-
-  console.log('🔍 [APP] Component mounted');
 
   useEffect(() => {
-    console.log('🔍 [APP] Checking for saved user...');
-
-    // Check URL params for token (Google OAuth redirect)
+    // Check for OAuth success in URL
     const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    const userParam = urlParams.get('user');
-    const error = urlParams.get('error');
+    const authSuccess = urlParams.get('auth');
 
-    if (error) {
-      console.log('❌ [APP] OAuth error:', error);
-      setOauthError(decodeURIComponent(error));
-      window.history.replaceState({}, '', '/authstack');
-    } else if (token && userParam) {
-      console.log('✅ [APP] Found OAuth token in URL');
-      try {
-        const userData = JSON.parse(decodeURIComponent(userParam));
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(userData));
-        setUser(userData);
-        console.log('✅ [APP] OAuth user logged in:', userData.email);
-        window.history.replaceState({}, '', '/authstack');
-      } catch (error) {
-        console.error('❌ [APP] Error parsing OAuth data:', error);
+    if (authSuccess === 'success') {
+      // Read user data from cookie
+      const userCookie = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('userData='));
+
+      if (userCookie) {
+        try {
+          const userData = JSON.parse(decodeURIComponent(userCookie.split('=')[1]));
+          setUser(userData);
+          // Clean URL
+          window.history.replaceState({}, '', '/authstack');
+        } catch (error) {
+          // Cookie parse error
+        }
       }
     } else {
-      // Check localStorage for existing session
-      const savedToken = localStorage.getItem('token');
-      const savedUser = localStorage.getItem('user');
+      // Check if we have user data in cookie (from previous session)
+      const userCookie = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('userData='));
 
-      if (savedToken && savedUser) {
-        console.log('✅ [APP] Found saved session');
+      if (userCookie) {
         try {
-          setUser(JSON.parse(savedUser));
-          console.log('✅ [APP] User restored from localStorage');
+          const userData = JSON.parse(decodeURIComponent(userCookie.split('=')[1]));
+          setUser(userData);
         } catch (error) {
-          console.error('❌ [APP] Error parsing saved user:', error);
-          localStorage.clear();
+          // Cookie parse error
         }
-      } else {
-        console.log('ℹ️ [APP] No saved session found');
       }
     }
 
     setLoading(false);
   }, []);
 
-  const handleLogin = (userData, token) => {
-    console.log('✅ [APP] User logged in:', userData.email);
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(userData));
+  const handleLogin = (userData) => {
+    // Store user data in cookie (not sensitive, just for UI)
+    document.cookie = `userData=${encodeURIComponent(JSON.stringify(userData))}; path=/; max-age=86400; SameSite=Strict`;
     setUser(userData);
   };
 
   const handleLogout = () => {
-    console.log('👋 [APP] User logged out');
-    localStorage.clear();
+    // Clear cookies
+    document.cookie = 'authToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = 'userData=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     setUser(null);
   };
 
   if (loading) {
     return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh',
-        fontFamily: 'system-ui'
-      }}>
+      <div className="flex justify-center items-center h-screen font-sans">
         <div>Loading...</div>
       </div>
     );
@@ -89,7 +73,7 @@ function App() {
       <Routes>
         <Route
           path="/authstack"
-          element={user ? <Navigate to="/authstack/dashboard" /> : <Login onLogin={handleLogin} oauthError={oauthError} />}
+          element={user ? <Navigate to="/authstack/dashboard" /> : <Login onLogin={handleLogin} />}
         />
         <Route
           path="/authstack/dashboard"

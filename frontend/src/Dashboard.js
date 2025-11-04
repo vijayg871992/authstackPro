@@ -9,140 +9,52 @@ function Dashboard({ user, onLogout }) {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      padding: '20px'
-    }}>
-      <div style={{
-        maxWidth: '800px',
-        margin: '0 auto',
-        background: 'white',
-        borderRadius: '16px',
-        overflow: 'hidden',
-        boxShadow: '0 20px 40px rgba(0,0,0,0.1)'
-      }}>
+    <div className="min-h-screen bg-gradient-to-br from-primary-500 to-secondary-500 p-5">
+      <div className="max-w-4xl mx-auto bg-white rounded-2xl overflow-hidden shadow-2xl">
         
         {/* Header */}
-        <div style={{
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          color: 'white',
-          padding: '30px 40px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
+        <div className="bg-gradient-to-br from-primary-500 to-secondary-500 text-white py-8 px-10 flex justify-between items-center">
           <div>
-            <h1 style={{ 
-              margin: '0 0 8px 0',
-              fontSize: '28px',
-              fontWeight: '700'
-            }}>
+            <h1 className="text-3xl font-bold mb-2">
               Welcome Back!
             </h1>
-            <p style={{ 
-              margin: 0,
-              fontSize: '16px',
-              opacity: 0.9
-            }}>
+            <p className="text-base opacity-90">
               You're successfully authenticated
             </p>
           </div>
           <button
             onClick={handleLogout}
-            style={{
-              background: 'rgba(255,255,255,0.2)',
-              border: '2px solid rgba(255,255,255,0.3)',
-              color: 'white',
-              padding: '10px 20px',
-              borderRadius: '8px',
-              fontSize: '14px',
-              fontWeight: '500',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-            onMouseOver={(e) => {
-              e.target.style.background = 'rgba(255,255,255,0.3)';
-              e.target.style.borderColor = 'rgba(255,255,255,0.5)';
-            }}
-            onMouseOut={(e) => {
-              e.target.style.background = 'rgba(255,255,255,0.2)';
-              e.target.style.borderColor = 'rgba(255,255,255,0.3)';
-            }}
+            className="bg-white bg-opacity-20 border-2 border-white border-opacity-30 text-white py-2.5 px-5 rounded-lg text-sm font-medium cursor-pointer transition-all duration-200 hover:bg-opacity-30 hover:border-opacity-50"
           >
             Sign Out
           </button>
         </div>
 
         {/* User Details */}
-        <div style={{ padding: '40px' }}>
-          <h2 style={{
-            margin: '0 0 24px 0',
-            fontSize: '20px',
-            fontWeight: '600',
-            color: '#1a202c'
-          }}>
+        <div className="p-10">
+          <h2 className="text-xl font-semibold text-gray-900 mb-6">
             Account Information
           </h2>
 
-          <div style={{
-            display: 'grid',
-            gap: '20px',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))'
-          }}>
+          <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             
             {/* User ID */}
-            <div style={{
-              background: '#f7fafc',
-              padding: '20px',
-              borderRadius: '12px',
-              border: '1px solid #e2e8f0'
-            }}>
-              <h3 style={{
-                margin: '0 0 8px 0',
-                fontSize: '14px',
-                fontWeight: '500',
-                color: '#718096',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px'
-              }}>
+            <div className="bg-gray-50 p-5 rounded-xl border border-gray-200">
+              <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">
                 User ID
               </h3>
-              <p style={{
-                margin: 0,
-                fontSize: '16px',
-                fontWeight: '600',
-                color: '#1a202c',
-                fontFamily: 'monospace'
-              }}>
+              <p className="text-base font-semibold text-gray-900 font-mono">
                 {user?.id || 'N/A'}
               </p>
             </div>
 
             {/* Full Name */}
-            <div style={{
-              background: '#f7fafc',
-              padding: '20px',
-              borderRadius: '12px',
-              border: '1px solid #e2e8f0'
-            }}>
-              <h3 style={{
-                margin: '0 0 8px 0',
-                fontSize: '14px',
-                fontWeight: '500',
-                color: '#718096',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px'
-              }}>
+            <div className="bg-gray-50 p-5 rounded-xl border border-gray-200">
+              <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">
                 Full Name
               </h3>
-              <p style={{
-                margin: 0,
-                fontSize: '16px',
-                fontWeight: '600',
-                color: '#1a202c'
-              }}>
-                {user?.firstName && user?.lastName 
+              <p className="text-base font-semibold text-gray-900">
+                {user?.firstName && user?.lastName
                   ? `${user.firstName} ${user.lastName}`
                   : user?.name || 'N/A'
                 }
@@ -150,82 +62,31 @@ function Dashboard({ user, onLogout }) {
             </div>
 
             {/* Email */}
-            <div style={{
-              background: '#f7fafc',
-              padding: '20px',
-              borderRadius: '12px',
-              border: '1px solid #e2e8f0'
-            }}>
-              <h3 style={{
-                margin: '0 0 8px 0',
-                fontSize: '14px',
-                fontWeight: '500',
-                color: '#718096',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px'
-              }}>
+            <div className="bg-gray-50 p-5 rounded-xl border border-gray-200">
+              <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">
                 Email Address
               </h3>
-              <p style={{
-                margin: 0,
-                fontSize: '16px',
-                fontWeight: '600',
-                color: '#1a202c'
-              }}>
+              <p className="text-base font-semibold text-gray-900">
                 {user?.email || 'N/A'}
               </p>
             </div>
 
             {/* Account Type */}
-            <div style={{
-              background: '#f7fafc',
-              padding: '20px',
-              borderRadius: '12px',
-              border: '1px solid #e2e8f0'
-            }}>
-              <h3 style={{
-                margin: '0 0 8px 0',
-                fontSize: '14px',
-                fontWeight: '500',
-                color: '#718096',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px'
-              }}>
+            <div className="bg-gray-50 p-5 rounded-xl border border-gray-200">
+              <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">
                 Account Type
               </h3>
-              <p style={{
-                margin: 0,
-                fontSize: '16px',
-                fontWeight: '600',
-                color: '#1a202c'
-              }}>
+              <p className="text-base font-semibold text-gray-900">
                 {user?.provider ? `${user.provider} OAuth` : 'Email/Password'}
               </p>
             </div>
 
             {/* Created Date */}
-            <div style={{
-              background: '#f7fafc',
-              padding: '20px',
-              borderRadius: '12px',
-              border: '1px solid #e2e8f0'
-            }}>
-              <h3 style={{
-                margin: '0 0 8px 0',
-                fontSize: '14px',
-                fontWeight: '500',
-                color: '#718096',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px'
-              }}>
+            <div className="bg-gray-50 p-5 rounded-xl border border-gray-200">
+              <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">
                 Member Since
               </h3>
-              <p style={{
-                margin: 0,
-                fontSize: '16px',
-                fontWeight: '600',
-                color: '#1a202c'
-              }}>
+              <p className="text-base font-semibold text-gray-900">
                 {user?.created_at 
                   ? new Date(user.created_at).toLocaleDateString()
                   : 'Today'
@@ -234,28 +95,11 @@ function Dashboard({ user, onLogout }) {
             </div>
 
             {/* Last Login */}
-            <div style={{
-              background: '#f7fafc',
-              padding: '20px',
-              borderRadius: '12px',
-              border: '1px solid #e2e8f0'
-            }}>
-              <h3 style={{
-                margin: '0 0 8px 0',
-                fontSize: '14px',
-                fontWeight: '500',
-                color: '#718096',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px'
-              }}>
+            <div className="bg-gray-50 p-5 rounded-xl border border-gray-200">
+              <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">
                 Last Login
               </h3>
-              <p style={{
-                margin: 0,
-                fontSize: '16px',
-                fontWeight: '600',
-                color: '#1a202c'
-              }}>
+              <p className="text-base font-semibold text-gray-900">
                 Just now
               </p>
             </div>

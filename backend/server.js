@@ -8,51 +8,109 @@ const nodemailer = require('nodemailer');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const session = require('express-session');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const Joi = require('joi');
+const crypto = require('crypto');
 
 const app = express();
 
-console.log('🚀 [SERVER] Starting Clean Auth Server...');
+// Trust proxy for nginx
+app.set('trust proxy', 1);
 
-// Middleware
+// Security Headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    }
+  }
+}));
+
+// CORS Configuration
 app.use(cors({
-  origin: ['https://vijayg.dev', 'http://localhost:3000'],
-  credentials: true
+  origin: process.env.NODE_ENV === 'production'
+    ? 'https://vijayg.dev'
+    : ['http://localhost:3000', 'https://vijayg.dev'],
+  credentials: true,
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
 app.use(express.json());
+
+// Session Configuration with separate secret
 app.use(session({
-  secret: process.env.JWT_SECRET,
+  secret: process.env.SESSION_SECRET,
   resave: false,
-  saveUninitialized: true
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    sameSite: 'strict',
+    maxAge: 24 * 60 * 60 * 1000
+  }
 }));
+
 app.use(passport.initialize());
 app.use(passport.session());
 
-console.log('✅ [SERVER] Middleware configured');
-
-// Database Connection Pool
+// Database Connection Pool (FIXED)
 const db = mysql.createPool({
   host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
+  port: process.env.DB_PORT || 3306,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  waitForConnections: true,
   connectionLimit: 10,
+  waitForConnections: true,
   queueLimit: 0
 });
 
-// Email Transporter
-const emailTransporter = nodemailer.createTransporter({
-  host: 'smtp.zoho.com',
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
+// // Email Transporter
+// const emailTransporter = nodemailer.createTransport({
+//   host: process.env.EMAIL_HOST || 'smtp.zoho.com',
+//   port: process.env.EMAIL_PORT || 587,
+//   secure: false,
+//   requireTLS: true,
+//   auth: {
+//     user: process.env.EMAIL_USER,
+//     pass: process.env.EMAIL_PASS
+//   },
+//   tls: {
+//     rejectUnauthorized: true
+//   }
+// });
 
-console.log('✅ [SERVER] Database and Email configured');
+// Email transporter configuration
+const createTransporter = () => {
+  const emailPass = process.env.EMAIL_PASS || 'VijjuProMax@871992';
+  
+  const zohoConfig = {
+    host: 'smtp.zoho.in',  
+    port: 465,
+    secure: true, 
+    auth: {
+      user: process.env.EMAIL_USER || 'admin@vijayg.dev',
+      pass: emailPass  
+    },
+    tls: {
+      rejectUnauthorized: false
+    }
+  };
+  
+  console.log('Creating Zoho email transporter with config:', {
+    host: zohoConfig.host,
+    port: zohoConfig.port,
+    user: zohoConfig.auth.user,
+    passLength: emailPass.length
+  });
+  
+  return nodemailer.createTransport(zohoConfig);
+};
 
 // Google OAuth Strategy
 passport.use(new GoogleStrategy({
@@ -60,21 +118,22 @@ passport.use(new GoogleStrategy({
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
   callbackURL: process.env.GOOGLE_CALLBACK_URL
 }, async (accessToken, refreshToken, profile, done) => {
-  console.log('🔍 [GOOGLE] OAuth callback received:', profile.emails[0].value);
-
   try {
     const email = profile.emails[0].value;
     const [rows] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
 
     if (rows.length > 0) {
-      console.log('✅ [GOOGLE] Existing user found:', email);
       return done(null, rows[0]);
     } else {
-      console.log('❌ [GOOGLE] User not registered:', email);
-      return done(null, false, { message: 'User not registered. Please sign up first.' });
+      await db.execute(
+        'INSERT INTO users (id, firstName, lastName, email, password, isActive, emailVerified, created_at, updated_at) VALUES (UUID(), ?, ?, ?, NULL, 1, 1, NOW(), NOW())',
+        [profile.name.givenName, profile.name.familyName, email]
+      );
+
+      const [newUser] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
+      return done(null, newUser[0]);
     }
   } catch (error) {
-    console.error('❌ [GOOGLE] OAuth error:', error);
     return done(error, null);
   }
 }));
@@ -89,75 +148,108 @@ passport.deserializeUser(async (id, done) => {
   }
 });
 
-console.log('✅ [SERVER] Google OAuth configured');
+// Validation Schemas
+const schemas = {
+  login: Joi.object({
+    email: Joi.string().email().required(),
+    password: Joi.string().min(1).required()
+  }),
+
+  register: Joi.object({
+    firstName: Joi.string().min(2).max(50).required(),
+    lastName: Joi.string().min(2).max(50).required(),
+    email: Joi.string().email().required(),
+    password: Joi.string()
+      .min(8)
+      .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+      .required()
+      .messages({
+        'string.pattern.base': 'Password must contain at least one uppercase letter, one lowercase letter, and one number'
+      })
+  }),
+
+  sendOtp: Joi.object({
+    email: Joi.string().email().required()
+  }),
+
+  verifyOtp: Joi.object({
+    email: Joi.string().email().required(),
+    otp: Joi.string().length(6).pattern(/^\d+$/).required()
+  })
+};
 
 // Utility Functions
 const generateJWT = (userId) => {
-  console.log('🔑 [JWT] Generating token for user:', userId);
   return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '24h' });
 };
 
+// FIXED: Use cryptographically secure random
 const generateOTP = () => {
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  console.log('🔢 [OTP] Generated OTP:', otp);
-  return otp;
+  return crypto.randomInt(100000, 999999).toString();
 };
 
 const sendEmail = async (to, subject, text) => {
-  console.log('📧 [EMAIL] Sending to:', to);
   try {
-    await emailTransporter.sendMail({
+    await createTransporter().sendMail({
       from: process.env.EMAIL_USER,
       to,
       subject,
       text
     });
-    console.log('✅ [EMAIL] Sent successfully to:', to);
-    return true;
+    return { success: true };
   } catch (error) {
-    console.error('❌ [EMAIL] Failed:', error.message);
-    return false;
+    return { success: false, error: error.message };
   }
 };
+
+// Rate Limiting
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  message: { success: false, message: 'Too many attempts, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Routes
 
 // 1. EMAIL + PASSWORD LOGIN
-app.post('/api/auth/login', async (req, res) => {
-  console.log('🔐 [LOGIN] Email/Password attempt:', req.body.email);
-  
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
-    const { email, password } = req.body;
-    
-    if (!email || !password) {
-      console.log('❌ [LOGIN] Missing credentials');
-      return res.status(400).json({ success: false, message: 'Email and password required' });
+    const { error } = schemas.login.validate(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
     }
-    
+
+    const { email, password } = req.body;
     const [rows] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
-    
+
     if (rows.length === 0) {
-      console.log('❌ [LOGIN] User not found:', email);
-      return res.status(401).json({ success: false, message: 'User not registered. Please sign up first.' });
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
     const user = rows[0];
 
     if (!user.password) {
-      console.log('❌ [LOGIN] No password set for user:', email);
-      return res.status(401).json({ success: false, message: 'Please use Google login or set a password' });
+      return res.status(401).json({ success: false, message: 'Please use Google login' });
     }
 
     const isValid = await bcrypt.compare(password, user.password);
 
     if (!isValid) {
-      console.log('❌ [LOGIN] Invalid password for:', email);
-      return res.status(401).json({ success: false, message: 'Incorrect password' });
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
-    
+
     const token = generateJWT(user.id);
-    console.log('✅ [LOGIN] Success for:', email);
-    
+
+    // Set httpOnly cookie
+    res.cookie('authToken', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000
+    });
+
     res.json({
       success: true,
       user: {
@@ -166,98 +258,97 @@ app.post('/api/auth/login', async (req, res) => {
         lastName: user.lastName,
         email: user.email
       },
-      token
+      token // Still send in response for compatibility
     });
-    
+
   } catch (error) {
-    console.error('❌ [LOGIN] Error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
 // 2. EMAIL OTP - SEND
-app.post('/api/auth/send-otp', async (req, res) => {
-  console.log('📨 [OTP] Send request for:', req.body.email);
-  
+app.post('/api/auth/send-otp', authLimiter, async (req, res) => {
   try {
-    const { email } = req.body;
-    
-    if (!email) {
-      console.log('❌ [OTP] Missing email');
-      return res.status(400).json({ success: false, message: 'Email required' });
+    const { error } = schemas.sendOtp.validate(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
     }
-    
+
+    const { email } = req.body;
     const otp = generateOTP();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-    
-    // Store OTP
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    // FIXED: Match actual database schema
     await db.execute(
-      'INSERT INTO otps (email, otp, expiresAt) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE otp = ?, expiresAt = ?',
+      `INSERT INTO otps (type, value, otp, purpose, expiresAt, createdAt, updatedAt)
+       VALUES ('email', ?, ?, 'login', ?, NOW(), NOW())
+       ON DUPLICATE KEY UPDATE otp = ?, expiresAt = ?, updatedAt = NOW()`,
       [email, otp, expiresAt, otp, expiresAt]
     );
-    
-    const emailSent = await sendEmail(
+
+    const emailResult = await sendEmail(
       email,
       'Your Login OTP',
       `Your OTP code is: ${otp}\n\nThis code expires in 10 minutes.`
     );
-    
-    if (emailSent) {
-      console.log('✅ [OTP] Sent successfully to:', email);
+
+    if (emailResult.success) {
       res.json({ success: true, message: 'OTP sent to your email' });
     } else {
-      console.log('❌ [OTP] Failed to send to:', email);
-      res.status(500).json({ success: false, message: 'Failed to send OTP' });
+      res.status(500).json({ success: false, message: `Failed to send OTP: ${emailResult.error}` });
     }
-    
+
   } catch (error) {
-    console.error('❌ [OTP] Send error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
 // 3. EMAIL OTP - VERIFY
-app.post('/api/auth/verify-otp', async (req, res) => {
-  console.log('🔍 [OTP] Verify request for:', req.body.email);
-  
+app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
   try {
-    const { email, otp } = req.body;
-    
-    if (!email || !otp) {
-      console.log('❌ [OTP] Missing email or OTP');
-      return res.status(400).json({ success: false, message: 'Email and OTP required' });
+    const { error } = schemas.verifyOtp.validate(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
     }
-    
+
+    const { email, otp } = req.body;
+
+    // FIXED: Match actual database schema
     const [otpRows] = await db.execute(
-      'SELECT * FROM otps WHERE email = ? AND otp = ? AND expiresAt > NOW()',
+      'SELECT * FROM otps WHERE value = ? AND otp = ? AND expiresAt > NOW() AND isUsed = 0',
       [email, otp]
     );
-    
+
     if (otpRows.length === 0) {
-      console.log('❌ [OTP] Invalid or expired OTP for:', email);
       return res.status(401).json({ success: false, message: 'Invalid or expired OTP' });
     }
-    
+
     // Check if user exists
     let [userRows] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
-    
+
     if (userRows.length === 0) {
-      console.log('🆕 [OTP] Creating new user:', email);
       await db.execute(
-        'INSERT INTO users (id, firstName, lastName, email, isActive, emailVerified) VALUES (UUID(), ?, ?, ?, 1, 1)',
+        'INSERT INTO users (id, firstName, lastName, email, password, isActive, emailVerified, created_at, updated_at) VALUES (UUID(), ?, ?, ?, NULL, 1, 1, NOW(), NOW())',
         ['User', 'Name', email]
       );
       [userRows] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
     }
-    
+
     const user = userRows[0];
-    
-    // Delete used OTP
-    await db.execute('DELETE FROM otps WHERE email = ?', [email]);
-    
+
+    // Mark OTP as used
+    await db.execute('UPDATE otps SET isUsed = 1, usedAt = NOW() WHERE value = ? AND otp = ?', [email, otp]);
+
     const token = generateJWT(user.id);
-    console.log('✅ [OTP] Login success for:', email);
-    
+
+    // Set httpOnly cookie
+    res.cookie('authToken', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000
+    });
+
     res.json({
       success: true,
       user: {
@@ -266,76 +357,85 @@ app.post('/api/auth/verify-otp', async (req, res) => {
         lastName: user.lastName,
         email: user.email
       },
-      token
+      token // Still send in response for compatibility
     });
-    
+
   } catch (error) {
-    console.error('❌ [OTP] Verify error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
 // 4. GOOGLE OAUTH ROUTES
 app.get('/api/auth/google', (req, res, next) => {
-  console.log('🔄 [GOOGLE] Initiating OAuth flow');
   passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
 });
 
-app.get('/auth/google/callback', (req, res, next) => {
-  passport.authenticate('google', (err, user, info) => {
-    if (err) {
-      console.error('❌ [GOOGLE] OAuth error:', err);
-      return res.redirect('http://localhost:3000/authstack?error=oauth_failed');
-    }
+// FIXED: Use httpOnly cookie instead of URL param
+app.get('/auth/google/callback',
+  passport.authenticate('google', { failureRedirect: '/authstack/#/login?error=oauth_failed' }),
+  (req, res) => {
+    const token = generateJWT(req.user.id);
 
-    if (!user) {
-      const message = info?.message || 'User not registered. Please sign up first.';
-      return res.redirect(`http://localhost:3000/authstack?error=${encodeURIComponent(message)}`);
-    }
+    // Set httpOnly cookie
+    res.cookie('authToken', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000
+    });
 
-    console.log('✅ [GOOGLE] OAuth success for:', user.email);
-    const token = generateJWT(user.id);
-    res.redirect(`http://localhost:3000/authstack/dashboard?token=${token}&user=${encodeURIComponent(JSON.stringify({
-      id: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email
-    }))}`);
-  })(req, res, next);
-});
+    // Also set user data cookie (not sensitive)
+    res.cookie('userData', JSON.stringify({
+      id: req.user.id,
+      firstName: req.user.firstName,
+      lastName: req.user.lastName,
+      email: req.user.email
+    }), {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000
+    });
+
+    res.redirect('/authstack/#/dashboard?auth=success');
+  }
+);
 
 // 5. USER REGISTRATION (Email + Password)
-app.post('/api/auth/register', async (req, res) => {
-  console.log('📝 [REGISTER] New user registration:', req.body.email);
-  
+app.post('/api/auth/register', authLimiter, async (req, res) => {
   try {
-    const { firstName, lastName, email, password } = req.body;
-    
-    if (!firstName || !lastName || !email || !password) {
-      console.log('❌ [REGISTER] Missing required fields');
-      return res.status(400).json({ success: false, message: 'All fields required' });
+    const { error } = schemas.register.validate(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
     }
-    
+
+    const { firstName, lastName, email, password } = req.body;
+
     // Check if user exists
     const [existing] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
-    
+
     if (existing.length > 0) {
-      console.log('❌ [REGISTER] User already exists:', email);
       return res.status(400).json({ success: false, message: 'User already exists' });
     }
-    
+
     const hashedPassword = await bcrypt.hash(password, 12);
-    
+
     await db.execute(
-      'INSERT INTO users (id, firstName, lastName, email, password, isActive, emailVerified) VALUES (UUID(), ?, ?, ?, ?, 1, 1)',
+      'INSERT INTO users (id, firstName, lastName, email, password, isActive, emailVerified, created_at, updated_at) VALUES (UUID(), ?, ?, ?, ?, 1, 1, NOW(), NOW())',
       [firstName, lastName, email, hashedPassword]
     );
-    
+
     const [newUser] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
     const token = generateJWT(newUser[0].id);
-    
-    console.log('✅ [REGISTER] Success for:', email);
-    
+
+    // Set httpOnly cookie
+    res.cookie('authToken', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000
+    });
+
     res.json({
       success: true,
       user: {
@@ -344,30 +444,53 @@ app.post('/api/auth/register', async (req, res) => {
         lastName: newUser[0].lastName,
         email: newUser[0].email
       },
-      token
+      token // Still send in response for compatibility
     });
-    
+
   } catch (error) {
-    console.error('❌ [REGISTER] Error:', error);
+    console.error('❌ Registration Error:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
 // Health Check
-app.get('/api/health', (req, res) => {
-  console.log('💓 [HEALTH] Check requested');
-  res.json({ success: true, message: 'Clean Auth Server Running', timestamp: new Date().toISOString() });
+app.get('/api/health', async (req, res) => {
+  try {
+    await db.execute('SELECT 1');
+    res.json({
+      success: true,
+      message: 'Server running',
+      timestamp: new Date().toISOString(),
+      database: 'connected'
+    });
+  } catch (error) {
+    res.status(503).json({
+      success: false,
+      message: 'Service unavailable',
+      database: 'disconnected'
+    });
+  }
+});
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error('Error:', err.message);
+  console.error('Stack:', err.stack);
+  res.status(err.status || 500).json({
+    success: false,
+    message: process.env.NODE_ENV === 'production'
+      ? 'Internal server error'
+      : err.message
+  });
 });
 
 // Start Server
 const PORT = process.env.PORT || 8001;
 app.listen(PORT, async () => {
-  console.log(`🌟 [SERVER] Clean Auth running on port ${PORT}`);
-
   try {
     await db.execute('SELECT 1');
-    console.log('✅ [DATABASE] Connection successful');
   } catch (error) {
-    console.error('❌ [DATABASE] Connection failed:', error);
+    process.exit(1);
   }
 });
