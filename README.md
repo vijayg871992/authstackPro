@@ -88,7 +88,7 @@ CREATE TABLE users (
     firstName VARCHAR(100) NOT NULL,
     lastName VARCHAR(100) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
-    password VARCHAR(255) NULL,  -- NULL for OAuth-only users
+    password VARCHAR(255) NULL,  
     isActive BOOLEAN DEFAULT TRUE,
     emailVerified BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
